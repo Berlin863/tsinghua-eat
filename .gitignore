@@ -1,0 +1,8 @@
+# 绝不能上传: 浏览器登录态(等于你的小红书账号)
+browser_profile/
+# 原始采集数据(小红书内容, 只留本地)
+data/posts.json
+# 可由 build 重新生成; 公开版数据请用 `python main.py export --public` 生成到 web/
+data/food_db.json
+__pycache__/
+*.pyc

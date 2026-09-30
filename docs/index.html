@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>今天吃什么 · 清华食堂决策器</title>
+<style>
+  :root {
+    --bg: #faf7f2; --card: #ffffff; --ink: #2b2622; --muted: #8a8078;
+    --accent: #e0533d; --accent-ink: #fff; --line: #ece5db;
+    --chip: #f4ede3; --shadow: 0 10px 30px rgba(60, 40, 20, .08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #191614; --card: #242020; --ink: #f0eae2; --muted: #9a9089;
+      --accent: #ff6a52; --line: #383028; --chip: #322b26;
+      --shadow: 0 10px 30px rgba(0, 0, 0, .35);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+    line-height: 1.6;
+  }
+  main { max-width: 620px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 30px; margin: 8px 0 4px; letter-spacing: 1px; }
+  h2 { font-size: 21px; margin: 12px 0 18px; }
+  .sub { color: var(--muted); margin: 0 0 28px; font-size: 14px; }
+  .card {
+    background: var(--card); border-radius: 18px; padding: 22px;
+    box-shadow: var(--shadow); border: 1px solid var(--line);
+  }
+  button {
+    font: inherit; cursor: pointer; border-radius: 14px; padding: 13px 22px;
+    border: 1px solid var(--line); background: var(--card); color: var(--ink);
+    transition: transform .06s ease, box-shadow .15s ease;
+  }
+  button:active { transform: scale(.98); }
+  button.primary {
+    background: var(--accent); color: var(--accent-ink); border: none;
+    font-weight: 600; box-shadow: 0 6px 18px rgba(224, 83, 61, .35);
+  }
+  button.ghost { background: transparent; color: var(--muted); }
+  .setup-row { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; }
+  .setup-row select {
+    font: inherit; padding: 8px 12px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  }
+  .progress { height: 8px; border-radius: 99px; background: var(--chip);
+    overflow: hidden; margin-bottom: 18px; }
+  .progress > div { height: 100%; background: var(--accent); width: 0%;
+    transition: width .3s ease; border-radius: 99px; }
+  .q-meta { color: var(--muted); font-size: 13px; }
+  .options { display: flex; flex-direction: column; gap: 10px; margin: 6px 0 18px; }
+  .options button { text-align: left; padding: 14px 18px; font-size: 16px; }
+  .options button:hover { border-color: var(--accent); }
+  .skip-row { text-align: right; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 20px; }
+  .chip {
+    background: var(--chip); border-radius: 99px; padding: 4px 13px;
+    font-size: 13px; color: var(--ink);
+  }
+  .chip.hot { background: var(--accent); color: var(--accent-ink); }
+  .result-card { margin-bottom: 14px; position: relative; }
+  .result-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .rank-no { font-size: 22px; font-weight: 700; color: var(--accent); }
+  .canteen { font-size: 14px; color: var(--muted); }
+  .dish { font-size: 19px; font-weight: 700; }
+  .score { margin-left: auto; font-size: 15px; color: var(--muted);
+    white-space: nowrap; }
+  .reasons { margin: 10px 0 0; padding: 0; list-style: none; color: var(--muted);
+    font-size: 14px; }
+  .reasons li { margin: 3px 0; }
+  .reasons b { color: var(--ink); font-weight: 600; }
+  .actions { display: flex; gap: 12px; margin-top: 22px; }
+  .actions button { flex: 1; }
+  .footnote { color: var(--muted); font-size: 12px; margin-top: 22px;
+    text-align: center; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <!-- 开始 -->
+  <section id="screen-start" class="card">
+    <h1>今天吃什么 🍚</h1>
+    <p class="sub" id="db-desc"></p>
+    <div class="setup-row">
+      <label for="n-questions">答几道题</label>
+      <select id="n-questions">
+        <option value="8">8 题(快)</option>
+        <option value="12" selected>12 题(标准)</option>
+        <option value="16">16 题(细)</option>
+      </select>
+    </div>
+    <button id="btn-start" class="primary">开始决策</button>
+    <p class="footnote">语料来自小红书公开帖子的本地聚合 · 仅供个人参考</p>
+  </section>
+
+  <!-- 答题 -->
+  <section id="screen-quiz" class="card" hidden>
+    <div class="progress"><div id="progress-bar"></div></div>
+    <div class="q-meta" id="q-meta"></div>
+    <h2 id="q-text"></h2>
+    <div class="options" id="q-options"></div>
+    <div class="skip-row"><button id="btn-skip" class="ghost">跳过这题 →</button></div>
+  </section>
+
+  <!-- 结果 -->
+  <section id="screen-result" hidden>
+    <h1>今日吃什么 · Top5</h1>
+    <p class="sub" id="result-desc"></p>
+    <div class="card" style="margin-bottom:16px">
+      <b>你的干饭画像</b>
+      <div class="chips" id="profile"></div>
+    </div>
+    <div id="cards"></div>
+    <div class="actions">
+      <button id="btn-reroll" class="primary">🎲 换个手气</button>
+      <button id="btn-reask" class="ghost">🔁 重新问答</button>
+    </div>
+    <p class="footnote">分数含随机抖动, 再来一次可能换一批 · 一切以窗口实物为准 :)</p>
+  </section>
+</main>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
