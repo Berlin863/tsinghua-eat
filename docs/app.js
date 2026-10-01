@@ -3,7 +3,7 @@
    抽题 -> 估计偏好 -> (菜品×食堂)打分(口味匹配+热度+场景修正) -> 随机抖动 -> Top5
    依赖 data.js 提供的全局: QUESTIONS / FOOD_DB / ZONES_DESC */
 
-const SET_KEYS = new Set(["budget_level", "zone", "random_boost"]);
+const SET_KEYS = new Set(["budget_level", "zone", "random_boost", "meal_kind"]);
 const BIG_CANTEEN_SEATS = 1900;
 const DIMS = ["口味", "主食", "菜系", "场景", "预算", "健康", "随心", "位置"];
 
@@ -92,6 +92,7 @@ function buildCandidates(db) {
           cpop: cPop[cname] !== undefined ? cPop[cname] : avgCPop,
           dpop: cell.mentions || 0, dlikes: cell.likes || 0,
           seedCell: !!cell.seed, sourceNote: d.source_note || "",
+          kind: d.kind || "正餐",
           xhsMentions: d.xhs_mentions || 0, recency: d.recency || 0,
           posts: d.xhs_posts || [],
         });
@@ -100,6 +101,7 @@ function buildCandidates(db) {
       out.push({
         dish: d.name, attrs: d.attrs, price: d.price, canteen: null, cinfo: null,
         cpop: avgCPop, dpop: 0, dlikes: 0, seedCell: false, sourceNote: "",
+        kind: d.kind || "正餐",
         xhsMentions: 0, recency: d.recency || 0, posts: [],
       });
     }
@@ -114,16 +116,30 @@ function tasteMatch(attrs, prefs) {
     const pv = prefs[k];
     if (pv) { raw += pv * v; contrib.push([k, pv * v]); }
   }
-  return [0.5 + 0.5 * Math.tanh(raw / 6), contrib];
+  return [0.5 + 0.5 * Math.tanh(raw / 5), contrib];
 }
 
 function popularityRaw(c) {
-  return 1 + Math.log10(1 + c.dlikes) + 0.9 * c.dpop + 0.7 * c.recency;
+  // 点赞取对数, 提及取"带符号对数"(负提及=差评压热度)
+  const m = c.dpop;
+  const mlog = m > 0 ? Math.log1p(m) : (m < 0 ? -Math.log1p(-m) : 0);
+  return 1 + Math.log10(1 + c.dlikes) + 0.8 * mlog + 0.7 * c.recency;
 }
 
 function sceneMult(c, prefs, pset) {
   const attrs = c.attrs, info = c.cinfo;
   let mult = 1;
+
+  // 正餐/小吃/配菜: 按"想吃什么类型"打折(配额在 rank 里再兜一层)
+  const mk = pset.meal_kind || "混合";
+  const kind = c.kind || "正餐";
+  if (mk === "正餐") {
+    if (kind === "小吃") mult *= 0.35;
+    else if (kind === "配菜") mult *= 0.55;
+  } else if (mk === "小吃") {
+    if (kind === "正餐") mult *= 0.55;
+    else if (kind === "配菜") mult *= 0.70;
+  }
 
   if ((prefs.breakfast || 0) > 0.4) mult *= attrs.breakfast ? 1.35 : 0.45;
   if ((prefs.night_snack || 0) > 0.4) mult *= attrs.night_snack ? 1.30 : 0.85;
@@ -160,7 +176,19 @@ function sceneMult(c, prefs, pset) {
   return mult;
 }
 
-function rank(db, prefs, pset, hard, topN = 5) {
+function weightedPick(pool, temp) {
+  // 按 分数^温度 加权抽一个(无放回, 抽中即从池中移除)
+  const ws = pool.map(s => Math.max(1e-6, s.score) ** temp);
+  let sum = ws.reduce((a, b) => a + b, 0);
+  let r = Math.random() * sum;
+  for (let i = 0; i < pool.length; i++) {
+    r -= ws[i];
+    if (r <= 0) return pool.splice(i, 1)[0];
+  }
+  return pool.pop();
+}
+
+function rank(db, prefs, pset, hard, topN = 5, tempOverride) {
   let cands = buildCandidates(db);
   if (hard.halal)
     cands = cands.filter(c =>
@@ -168,24 +196,52 @@ function rank(db, prefs, pset, hard, topN = 5) {
 
   const pops = cands.map(popularityRaw);
   const lo = Math.min(...pops), hi = Math.max(...pops);
-  const sigma = 0.05 + 0.10 * pset.random_boost;
+  const sigma = 0.08 + 0.12 * (pset.random_boost || 0);
 
   const scored = cands.map((c, i) => {
     const pop = 0.15 + 0.85 * (hi > lo ? (pops[i] - lo) / (hi - lo) : 0.5);
     const [match, contrib] = tasteMatch(c.attrs, prefs);
     const mult = sceneMult(c, prefs, pset);
-    const score = 100 * (0.55 * match + 0.45 * pop) * mult * (1 + gauss() * sigma);
+    const score = 100 * (0.58 * match + 0.42 * pop) * mult * (1 + gauss() * sigma);
     return { score, c, contrib };
   }).sort((a, b) => b.score - a.score);
 
-  const picked = [], seenDish = new Set(), canteenCnt = {};
-  for (const s of scored) {
-    if (seenDish.has(s.c.dish)) continue;
-    if (s.c.canteen && (canteenCnt[s.c.canteen] || 0) >= 2) continue;
+  // 各类型配额(由 meal_kind 决定)
+  const mk = pset.meal_kind || "混合";
+  const caps = {
+    "正餐": { "小吃": 1, "配菜": 1, "正餐": topN },
+    "小吃": { "小吃": topN, "配菜": 2, "正餐": 1 },
+    "混合": { "小吃": 2, "配菜": 1, "正餐": topN },
+  }[mk];
+
+  const picked = [], seenDish = new Set(), canteenCnt = {}, kindCnt = {};
+  const acceptable = s => {
+    if (seenDish.has(s.c.dish)) return false;
+    if (s.c.canteen && (canteenCnt[s.c.canteen] || 0) >= 2) return false;
+    const k = s.c.kind || "正餐";
+    if ((kindCnt[k] || 0) >= caps[k]) return false;
+    return true;
+  };
+  const take = s => {
     picked.push(s);
     seenDish.add(s.c.dish);
     if (s.c.canteen) canteenCnt[s.c.canteen] = (canteenCnt[s.c.canteen] || 0) + 1;
+    const k = s.c.kind || "正餐";
+    kindCnt[k] = (kindCnt[k] || 0) + 1;
+  };
+
+  // 头部 24 个候选加权抽样; "让命运决定"时温度放平, 更野; 重掷时可传入衰减温度
+  const temp = tempOverride ||
+    ((pset.random_boost || 0) > 0.5 ? 1.2 : 3.0);
+  const pool = scored.slice(0, 24);
+  while (picked.length < topN && pool.length) {
+    const s = weightedPick(pool, temp);
+    if (acceptable(s)) take(s);
+  }
+  // 兜底: 池子抽干了还没凑满 -> 顺序补齐
+  for (const s of scored) {
     if (picked.length >= topN) break;
+    if (acceptable(s)) take(s);
   }
   return picked;
 }
@@ -201,6 +257,8 @@ function profileChips(prefs, pset, hard) {
   const chips = [];
   if (hard.halal) chips.push(["清真", true]);
   if (pset.zone) chips.push(["位置·" + pset.zone, false]);
+  if (pset.meal_kind && pset.meal_kind !== "混合")
+    chips.push([pset.meal_kind === "小吃" ? "解馋模式" : "正餐模式", true]);
   chips.push(["预算档 " + pset.budget_level, false]);
   const keys = Object.keys(prefs)
     .sort((a, b) => Math.abs(prefs[b]) - Math.abs(prefs[a])).slice(0, 8);
@@ -233,11 +291,12 @@ function resultCardHtml(rankNo, { score, c, contrib }) {
       .map(t => `《${esc(t.slice(0, 22))}》`);
     if (titles.length) lines.push("帖子: " + titles.join(" "));
   }
+  const kindTag = (c.kind && c.kind !== "正餐") ? `〔${c.kind}〕` : "";
   return `<div class="card result-card">
     <div class="result-head">
       <span class="rank-no">${rankNo}</span>
       <span class="canteen">【${esc(cname)}】</span>
-      <span class="dish">${esc(c.dish)}</span>
+      <span class="dish">${esc(c.dish)}${kindTag}</span>
       <span class="score">综合 ${score.toFixed(1)}</span>
     </div>
     <ul class="reasons">${lines.map(l => `<li>- ${l}</li>`).join("")}</ul>
@@ -259,7 +318,7 @@ function initUI() {
 
   function startQuiz() {
     const n = +$("n-questions").value;
-    session = { questions: sampleQuestions(n), answers: [], i: 0 };
+    session = { questions: sampleQuestions(n), answers: [], i: 0, temp: 3.0 };
     show("quiz");
     renderQuestion();
   }
@@ -290,16 +349,20 @@ function initUI() {
   function renderResults() {
     show("result");
     $("result-desc").textContent =
-      `(语料: 小红书 ${FOOD_DB.n_posts} 帖 + 官方种子库, 抖动 σ=${(0.05 + 0.1 * session.pset.random_boost).toFixed(2)})`;
+      `(语料: 小红书 ${FOOD_DB.n_posts} 帖 + 官方种子库, 抖动 σ=${(0.08 + 0.12 * (session.pset.random_boost || 0)).toFixed(2)})`;
     $("profile").innerHTML = profileChips(session.prefs, session.pset, session.hard)
       .map(([t, hot]) => `<span class="chip${hot ? " hot" : ""}">${esc(t)}</span>`).join("");
-    const picked = rank(FOOD_DB, session.prefs, session.pset, session.hard, 5);
+    const picked = rank(FOOD_DB, session.prefs, session.pset, session.hard, 5,
+      session.temp);
     $("cards").innerHTML = picked.map((s, i) => resultCardHtml(i + 1, s)).join("");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   $("btn-start").onclick = startQuiz;
-  $("btn-reroll").onclick = renderResults;          // 同一偏好重新掷骰
+  $("btn-reroll").onclick = () => {                 // 同一偏好重新掷骰, 连点越点越野
+    session.temp = Math.max(1.0, (session.temp ?? 3.0) * 0.65);
+    renderResults();
+  };
   $("btn-reask").onclick = startQuiz;               // 重新问一轮
 }
 

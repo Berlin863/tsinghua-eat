@@ -123,28 +123,28 @@ def build_candidates(db):
         cells = dict(d.get("canteens") or {})
         if d.get("seed_canteen") and d["seed_canteen"] not in cells:
             cells[d["seed_canteen"]] = {"mentions": 0, "likes": 0, "seed": True}
+        common = dict(
+            dish=d["name"], attrs=d["attrs"], price=d["price"],
+            kind=d.get("kind", "正餐"),
+            source_note=d.get("source_note", ""),
+            xhs_mentions=d["xhs_mentions"], recency=d.get("recency", 0),
+            posts=d.get("xhs_posts") or [],
+        )
         if cells:
             for cname, cell in cells.items():
                 info = canteens.get(cname)
                 if not info:
                     continue
                 out.append(dict(
-                    dish=d["name"], attrs=d["attrs"], price=d["price"],
-                    canteen=cname, cinfo=info, cpop=c_pop.get(cname, avg_c_pop),
+                    common, canteen=cname, cinfo=info,
+                    cpop=c_pop.get(cname, avg_c_pop),
                     dpop=cell.get("mentions", 0), dlikes=cell.get("likes", 0),
                     seed_cell=bool(cell.get("seed")),
-                    source_note=d.get("source_note", ""),
-                    xhs_mentions=d["xhs_mentions"], recency=d.get("recency", 0),
-                    posts=d.get("xhs_posts") or [],
                 ))
         else:
             out.append(dict(
-                dish=d["name"], attrs=d["attrs"], price=d["price"],
-                canteen=None, cinfo=None, cpop=avg_c_pop,
+                common, canteen=None, cinfo=None, cpop=avg_c_pop,
                 dpop=0, dlikes=0, seed_cell=False,
-                source_note=d.get("source_note", ""),
-                xhs_mentions=0, recency=d.get("recency", 0),
-                posts=[],
             ))
     return out
 
@@ -158,17 +158,33 @@ def taste_match(attrs, prefs):
         if pv:
             raw += pv * v
             contrib.append((k, pv * v))
-    return 0.5 + 0.5 * math.tanh(raw / 6.0), contrib
+    return 0.5 + 0.5 * math.tanh(raw / 5.0), contrib
 
 
 def popularity_raw(c):
-    base = 1.0 + math.log10(1 + c["dlikes"]) + 0.9 * c["dpop"] + 0.7 * c["recency"]
-    return base
+    """热度: 点赞取对数, 提及次数取'带符号对数'(负提及=差评压热度)。"""
+    m = c["dpop"]
+    mlog = math.log1p(m) if m > 0 else (-math.log1p(-m) if m < 0 else 0.0)
+    return 1.0 + math.log10(1 + c["dlikes"]) + 0.8 * mlog + 0.7 * c["recency"]
 
 
 def scene_mult(c, prefs, pset, hard):
     attrs, info = c["attrs"], c["cinfo"]
     mult = 1.0
+
+    # 正餐/小吃/配菜: 按"想吃什么类型"打折(配额在 rank 里再兜一层)
+    mk = pset.get("meal_kind", "混合")
+    kind = c.get("kind", "正餐")
+    if mk == "正餐":
+        if kind == "小吃":
+            mult *= 0.35
+        elif kind == "配菜":
+            mult *= 0.55
+    elif mk == "小吃":
+        if kind == "正餐":
+            mult *= 0.55
+        elif kind == "配菜":
+            mult *= 0.70
 
     # 餐段
     if prefs.get("breakfast", 0) > 0.4:
@@ -227,6 +243,7 @@ def scene_mult(c, prefs, pset, hard):
 
 
 def rank(db, prefs, pset, hard, top_n=5, rng=None):
+    """打分后在头部候选池里"加权随机抽样"取 top_n —— 永远合理, 常常不同。"""
     rng = rng or random.Random()
     cands = build_candidates(db)
     if hard.get("halal"):
@@ -241,26 +258,55 @@ def rank(db, prefs, pset, hard, top_n=5, rng=None):
         pop = 0.15 + 0.85 * ((pr - lo) / (hi - lo) if hi > lo else 0.5)
         match, contrib = taste_match(c["attrs"], prefs)
         mult = scene_mult(c, prefs, pset, hard)
-        sigma = 0.05 + 0.10 * pset.get("random_boost", 0)
+        sigma = 0.08 + 0.12 * pset.get("random_boost", 0)
         jitter = 1 + rng.gauss(0, sigma)
-        score = 100 * (0.55 * match + 0.45 * pop) * mult * jitter
+        score = 100 * (0.58 * match + 0.42 * pop) * mult * jitter
         scored.append((score, c, contrib))
 
     scored.sort(key=lambda x: x[0], reverse=True)
 
-    # 多样性: 同一菜品只出现一次, 同一食堂最多 2 条
-    picked, seen_dish, canteen_cnt = [], set(), defaultdict(int)
-    for score, c, contrib in scored:
+    # 各类型配额(由 meal_kind 决定)
+    mk = pset.get("meal_kind", "混合")
+    caps = {"正餐": {"小吃": 1, "配菜": 1, "正餐": top_n},
+            "小吃": {"小吃": top_n, "配菜": 2, "正餐": 1},
+            "混合": {"小吃": 2, "配菜": 1, "正餐": top_n}}[mk]
+
+    picked, seen_dish, canteen_cnt, kind_cnt = [], set(), defaultdict(int), defaultdict(int)
+
+    def acceptable(s):
+        c = s[1]
         if c["dish"] in seen_dish:
-            continue
+            return False
         if c["canteen"] and canteen_cnt[c["canteen"]] >= 2:
-            continue
-        picked.append((score, c, contrib))
+            return False
+        if kind_cnt[c.get("kind", "正餐")] >= caps[c.get("kind", "正餐")]:
+            return False
+        return True
+
+    def take(s):
+        picked.append(s)
+        c = s[1]
         seen_dish.add(c["dish"])
         if c["canteen"]:
             canteen_cnt[c["canteen"]] += 1
+        kind_cnt[c.get("kind", "正餐")] += 1
+
+    # 头部 24 个候选按 分数^温度 加权抽样; "让命运决定"时温度放平, 更野
+    temp = 1.2 if pset.get("random_boost", 0) > 0.5 else 3.0
+    pool = [s for s in scored[:24]]
+    while len(picked) < top_n and pool:
+        ws = [max(1e-6, s[0]) ** temp for s in pool]
+        i = rng.choices(range(len(pool)), weights=ws, k=1)[0]
+        s = pool.pop(i)
+        if acceptable(s):
+            take(s)
+
+    # 兜底: 候选池耗尽还没凑满 -> 放宽类型配额顺序补齐
+    for s in scored:
         if len(picked) >= top_n:
             break
+        if s[1]["dish"] not in seen_dish and acceptable(s):
+            take(s)
     return picked
 
 
@@ -279,7 +325,8 @@ def render(db, picked, prefs, pset, hard):
         if not c["canteen"]:
             c = dict(c)
             c["_hint"] = "种子菜品未关联到具体食堂(爬取帖子后会自动补上), 大食堂基础窗口常见"
-        print(f"\n {rank_i}. 【{cname}】{c['dish']}    综合 {score:.1f} 分")
+        kind_tag = "" if c.get("kind", "正餐") == "正餐" else f"〔{c['kind']}〕"
+        print(f"\n {rank_i}. 【{cname}】{c['dish']}{kind_tag}    综合 {score:.1f} 分")
         # 理由: 偏好命中
         hits = sorted(contrib, key=lambda kv: kv[1], reverse=True)
         hit_txt = [KEY_LABELS.get(k, k) for k, v in hits if v > 0.25][:3]

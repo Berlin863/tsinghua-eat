@@ -193,6 +193,11 @@ QUESTIONS = [
     ]),
 
     # ------------------------------------------------ 场景 (10)
+    dict(id="meal_kind", dim="场景", q="这顿要正经吃一顿, 还是垫垫/解馋?", options=[
+        ("正经吃一顿, 要管饱的正餐", {"meal_kind": "正餐"}),
+        ("想吃点心/小吃/甜品, 解馋为主", {"meal_kind": "小吃"}),
+        ("都可以, 混着来", {"meal_kind": "混合"}),
+    ]),
     dict(id="meal_time", dim="场景", q="这顿是?", options=[
         ("早餐", {"breakfast": 1.2, "porridge": .3, "dimsum": .3}),
         ("午餐", {}),
@@ -416,9 +421,9 @@ QUESTIONS = [
 ]
 
 # 设置型权重键(不平均, 直接覆盖)
-SET_KEYS = {"budget_level", "zone", "random_boost"}
+SET_KEYS = {"budget_level", "zone", "random_boost", "meal_kind"}
 
-assert len(QUESTIONS) == 78, f"题库数量变化: {len(QUESTIONS)}"
+assert len(QUESTIONS) == 79, f"题库数量变化: {len(QUESTIONS)}"
 
 
 def sample_questions(n=12, rng=None):

@@ -173,8 +173,8 @@ def parse_posts(posts, verbose=True):
         for c in p.get("comments") or []:
             if c.get("content"):
                 sources.append((c["content"], 0.5))
-        if p.get("negative_desc"):      # 避雷/差评: 负权重, 且不计入点赞
-            sources.append((p["negative_desc"], -1.0))
+        if p.get("negative_desc"):      # 避雷/差评: 负权重(手动语料专用, 比路人评论更有分量)
+            sources.append((p["negative_desc"], -1.5))
 
         seg_sources = []
         post_canteens_w = {}   # canteen -> 权重(正负都可能)
@@ -257,6 +257,7 @@ def parse_posts(posts, verbose=True):
             "name": name,
             "attrs": d["attrs"],
             "price": d["price"],
+            "kind": d.get("kind", "正餐"),
             "seed_canteen": d.get("canteen"),
             "source_note": d.get("source", ""),
             "canteens": {c: {"mentions": v[0], "likes": v[1]}
