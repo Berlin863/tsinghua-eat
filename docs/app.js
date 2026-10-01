@@ -251,7 +251,9 @@ function initUI() {
     el.hidden = el.id !== "screen-" + name);
 
   $("db-desc").textContent =
-    `小红书 ${FOOD_DB.n_posts} 帖语料 + ${QUESTIONS.length} 题随机问卷 → 食堂/菜品 Top5`;
+    `小红书 ${FOOD_DB.n_posts} 帖语料` +
+    (FOOD_DB.n_manual ? ` + 手动补充 ${FOOD_DB.n_manual} 条` : "") +
+    ` + ${QUESTIONS.length} 题随机问卷 → 食堂/菜品 Top5`;
 
   let session = null;   // {answers, questions, prefs, pset, hard}
 

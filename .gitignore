@@ -2,6 +2,7 @@
 browser_profile/
 # 原始采集数据(小红书内容, 只留本地)
 data/posts.json
+data/manual_posts.json
 # 可由 build 重新生成; 公开版数据请用 `python main.py export --public` 生成到 web/
 data/food_db.json
 __pycache__/

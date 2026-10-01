@@ -49,8 +49,9 @@ xhs_scraper.py   Playwright 采集: 真实 Edge/Chrome + 持久化登录态,
                  真人节奏滚动/停顿, 每帖增量保存到 data/posts.json;
                  帖子正文+评论都会读(评论靠拦截页面自然加载的接口响应)
       |
-food_parser.py   文本解析: 识别食堂(含别名)+菜品(84种种子词典, 最长匹配),
-                 同句"就近配对"得到 食堂-菜品 对; 正文权重 1.0、评论 0.5;
+food_parser.py   文本解析: 识别食堂(含别名)+菜品(130种种子词典, 最长匹配),
+                 同句"就近配对"得到 食堂-菜品 对; 正文权重 1.0、评论 0.5、
+                 避雷差评 -1.0(手动语料的 negative_desc 字段);
                  统计提及/点赞/时效, 还能发现种子库之外的高频食堂
       |
 question_bank.py 78 道题、8 个维度的偏好问题库; 每次分层随机抽 12 题,
@@ -102,7 +103,8 @@ xhs_scraper.py     采集器
 food_parser.py     帖子 -> food_db.json
 question_bank.py   78 题偏好问卷库
 recommender.py     偏好估计 + 打分 + Top5
-seed_data.py       官方食堂信息 + 84 种菜品属性词典
+seed_data.py       官方食堂信息 + 130 种菜品属性词典
+data/manual_posts.json  手动补充语料(避雷写 negative_desc)
 data/posts.json    采集到的帖子
 data/food_db.json  解析后的推荐语料
 browser_profile/   浏览器持久化配置(登录态)

@@ -23,7 +23,20 @@ import seed_data
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 POSTS_FILE = DATA_DIR / "posts.json"
+MANUAL_FILE = DATA_DIR / "manual_posts.json"   # 手动补充的语料
 FOOD_DB_FILE = DATA_DIR / "food_db.json"
+
+
+def load_all_posts():
+    """爬取帖子 + 手动补充语料(格式同 posts.json, source=manual)。"""
+    posts = json.loads(POSTS_FILE.read_text(encoding="utf-8")) \
+        if POSTS_FILE.exists() else []
+    for m in (json.loads(MANUAL_FILE.read_text(encoding="utf-8"))
+              if MANUAL_FILE.exists() else []):
+        m.setdefault("source", "manual")
+        m.setdefault("note_id", f"manual-{len(posts) + 1}")
+        posts.append(m)
+    return posts
 
 SEG_SPLIT = re.compile(r"[。！？!?；;\n]")
 # 发现新食堂用: 1~4 个汉字 + 食堂/餐厅
@@ -160,9 +173,11 @@ def parse_posts(posts, verbose=True):
         for c in p.get("comments") or []:
             if c.get("content"):
                 sources.append((c["content"], 0.5))
+        if p.get("negative_desc"):      # 避雷/差评: 负权重, 且不计入点赞
+            sources.append((p["negative_desc"], -1.0))
 
         seg_sources = []
-        post_canteens_w = {}   # canteen -> 最大权重
+        post_canteens_w = {}   # canteen -> 权重(正负都可能)
         for text, w in sources:
             for seg in SEG_SPLIT.split(text):
                 if not seg.strip():
@@ -171,14 +186,17 @@ def parse_posts(posts, verbose=True):
                 d_hits = match_terms(seg, d_pairs)
                 seg_sources.append((c_hits, d_hits, w))
                 for _, _, c in c_hits:
-                    post_canteens_w[c] = max(post_canteens_w.get(c, 0), w)
+                    if c in post_canteens_w:
+                        post_canteens_w[c] = max(post_canteens_w[c], w)
+                    else:
+                        post_canteens_w[c] = w
 
         # 整篇只提到一个食堂 => 篇内菜品都弱关联到它(探店帖结构)
         solo_canteen, solo_w = (None, 0)
         if len(post_canteens_w) == 1:
             solo_canteen, solo_w = next(iter(post_canteens_w.items()))
 
-        pair_weight = {}       # (dish, canteen|None) -> 权重(取最大)
+        pair_weight = {}       # (dish, canteen|None) -> 权重(正负, 取最大)
         for c_hits, d_hits, w in seg_sources:
             for ds, de, dish in d_hits:
                 if c_hits:
@@ -187,21 +205,21 @@ def parse_posts(posts, verbose=True):
                     c = min(c_hits, key=lambda ch: min(abs(ch[0] - ds),
                                                        abs(ch[0] - de)))[2]
                     key = (dish, c)
-                    pair_weight[key] = max(pair_weight.get(key, 0), w)
                 elif solo_canteen:
                     key = (dish, solo_canteen)
-                    pair_weight[key] = max(pair_weight.get(key, 0),
-                                           min(w, solo_w))
+                    w = min(w, solo_w)
                 else:
-                    pair_weight[(dish, None)] = max(
-                        pair_weight.get((dish, None), 0), w)
+                    key = (dish, None)
+                pair_weight[key] = max(pair_weight[key], w) \
+                    if key in pair_weight else w
 
         # 聚合
         for c, w in post_canteens_w.items():
             st = canteen_stat.setdefault(
                 c, {"mentions": 0, "likes_sum": 0, "posts": set()})
             st["mentions"] += w
-            st["likes_sum"] += liked
+            if w > 0:
+                st["likes_sum"] += liked
             st["posts"].add(p["note_id"])
         for (dish, c), w in pair_weight.items():
             st = dish_stat.setdefault(
@@ -209,7 +227,8 @@ def parse_posts(posts, verbose=True):
             if c:
                 cell = st["canteens"].setdefault(c, [0, 0])
                 cell[0] += w
-                cell[1] += liked
+                if w > 0:
+                    cell[1] += liked
             st["posts"].add(p["note_id"])
             st["recency"] = max(st["recency"], rec)
 
@@ -263,16 +282,18 @@ def parse_posts(posts, verbose=True):
 
 
 def build(verbose=True):
-    posts = json.loads(POSTS_FILE.read_text(encoding="utf-8")) \
-        if POSTS_FILE.exists() else []
+    posts = load_all_posts()
     db = parse_posts(posts, verbose)
+    db["n_manual"] = sum(1 for p in posts if p.get("source") == "manual")
+    db["n_posts"] = len(posts) - db["n_manual"]   # n_posts 只算爬取的
     DATA_DIR.mkdir(exist_ok=True)
     FOOD_DB_FILE.write_text(
         json.dumps(db, ensure_ascii=False, indent=2), encoding="utf-8")
 
     scraped = [d for d in db["dishes"] if d["xhs_mentions"] > 0]
     if verbose:
-        print(f"解析完成: {len(posts)} 篇帖子 -> {FOOD_DB_FILE}")
+        print(f"解析完成: {len(posts)} 条语料(爬取 {db['n_posts']} + 手动 {db['n_manual']})"
+              f" -> {FOOD_DB_FILE}")
         print(f"食堂 {len(db['canteens'])} 个(种子 {len(seed_data.CANTEENS)} 个), "
               f"被帖子提到的菜品 {len(scraped)} 种, 种子菜品共 {len(db['dishes'])} 种")
         hot = sorted(db["canteens"].items(),
