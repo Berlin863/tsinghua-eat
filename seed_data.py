@@ -275,6 +275,30 @@ DISHES = {
     # ---- 饮品(数据缺口, 待手动语料补充奶茶/酸梅汤/柠檬水等) ----
     "咖啡": dict(canteen="观畴园", price=2, source="官网:清青咖啡(观畴园一层南侧)",
                  attrs={"light": .5}),
+
+    # ---- 手动语料 v2 (2026-10-03): 饮品 + 清淡菜 ----
+    "可乐": dict(price=1, attrs={"indulgent": .3}),
+    "雪碧": dict(price=1, attrs={"indulgent": .3, "cold": .3}),
+    "芬达": dict(price=1, attrs={"sweet": .4, "indulgent": .3},
+                 source="橙味和苹果味"),
+    "三合一果汁": dict(price=1, attrs={"sweet": .6, "cold": .3},
+                       source="热带水果复合味, 各食堂通用"),
+    "酸奶": dict(price=1, attrs={"healthy": .8, "light": .4, "soft": .3},
+                 source="学校自营酸奶"),
+    "酸梅汤": dict(price=1, attrs={"sour": .8, "sweet": .3, "cold": .5}),
+    "奶茶": dict(price=2, attrs={"sweet": 1, "comfort": .6, "indulgent": .4}),
+    "果茶": dict(price=2, attrs={"sweet": .8, "healthy": .3}),
+    "虾仁扁肉": dict(price=1, attrs={"dimsum": 1, "soup": .8, "light": 1,
+                                     "protein": .8, "soft": .8},
+                     source="福州味道窗口"),
+    "阳春面": dict(price=1, attrs={"noodle": 2, "soup": 1, "light": 1.5, "home": .8}),
+    "三鲜鱼蛋粉": dict(price=1, attrs={"powder": 2, "soup": 1, "savory": .8, "light": .6}),
+    "鸡汤馄饨": dict(price=1, attrs={"soup": 1.5, "light": 1.2, "soft": 1, "protein": .5}),
+    "虾仁馄饨": dict(price=1, attrs={"soup": 1.2, "light": 1, "protein": .8, "soft": 1}),
+    "牛肉砂锅": dict(price=2, attrs={"soup": 1.5, "meat": 1.2, "hot": 1.2, "savory": .8},
+                     source="清青牛拉窗口"),
+    "吊龙米粉": dict(price=2, attrs={"powder": 2, "meat": 1, "light": .8, "soup": .8},
+                     source="紫荆四楼新出, 推荐不辣"),
 }
 
 # ---------------------------------------------------------------- 菜品分类
@@ -284,13 +308,14 @@ KIND_SNACK = {
     "清青永和", "面包坊面包", "茶叶蛋", "油条", "葱油饼", "酱香饼", "手抓饼",
     "煎饼果子", "小笼包", "包子", "锅贴", "豆腐脑", "胡辣汤", "粥",
     "关东煮", "烤羊肉串", "烧鸟", "麻辣牛肉干", "小龙虾", "叉烧包",
-    "煎蛋", "炸蔬菜",
+    "煎蛋", "炸蔬菜", "虾仁扁肉",
 }
 KIND_DESSERT = {
     "蛋卷", "芋泥", "烤红薯",
 }
 KIND_DRINK = {
-    "豆浆", "咖啡",
+    "豆浆", "咖啡", "可乐", "雪碧", "芬达", "三合一果汁", "酸奶",
+    "酸梅汤", "奶茶", "果茶",
 }
 KIND_SIDE = {
     "例汤", "瓦罐汤", "清炒时蔬", "鸡蛋羹", "金钱蛋", "醋溜木须",
