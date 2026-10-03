@@ -44,9 +44,10 @@ def main():
 
     sub.add_parser("build", help="解析帖子生成 food_db.json")
 
-    p_rec = sub.add_parser("recommend", help="问问卷并推荐")
-    p_rec.add_argument("--questions", type=int, default=12, help="抽题数量")
-    p_rec.add_argument("--top", type=int, default=5)
+    p_rec = sub.add_parser("recommend", help="问问卷并推荐(分栏目)")
+    p_rec.add_argument("--questions", type=int, default=9, help="抽题数量")
+    p_rec.add_argument("--llm", action="store_true",
+                       help="启用大模型研判(需 ANTHROPIC_API_KEY + pip install anthropic)")
     p_rec.add_argument("--auto", action="store_true",
                        help="随机自动作答(测试/手滑模式)")
 
@@ -79,8 +80,8 @@ def main():
             food_parser.build(verbose=False)
             print("[OK] food_db.json 已更新")
         import recommender
-        recommender.run(n_questions=getattr(args, "questions", 12) or 12,
-                        top_n=getattr(args, "top", 5) or 5,
+        recommender.run(n_questions=getattr(args, "questions", 9) or 9,
+                        use_llm=getattr(args, "llm", False),
                         auto=getattr(args, "auto", False))
 
 

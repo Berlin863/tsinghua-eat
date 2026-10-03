@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 
 import seed_data
-from question_bank import QUESTIONS
+from question_bank import QUESTIONS, SECTIONS
 
 ROOT = Path(__file__).resolve().parent
 FOOD_DB_FILE = ROOT / "data" / "food_db.json"
@@ -27,7 +27,7 @@ def export(public=False):
     db = json.loads(FOOD_DB_FILE.read_text(encoding="utf-8"))
 
     questions = [
-        {"id": q["id"], "dim": q["dim"], "q": q["q"],
+        {"id": q["id"], "sec": q["sec"], "q": q["q"],
          "options": [[o[0], o[1]] + ([o[2]] if len(o) > 2 else [])
                      for o in q["options"]]}
         for q in QUESTIONS
@@ -48,6 +48,7 @@ def export(public=False):
                + f"  |  {len(questions)} 题, {db['n_posts']} 帖语料\n"
                + "const QUESTIONS = " + json.dumps(questions, ensure_ascii=False,
                                                     separators=(",", ":")) + ";\n"
+               + "const SECTIONS = " + json.dumps(SECTIONS, ensure_ascii=False) + ";\n"
                + "const FOOD_DB = " + json.dumps(db, ensure_ascii=False,
                                                  separators=(",", ":")) + ";\n"
                + "const ZONES_DESC = " + json.dumps(seed_data.ZONES_DESC,

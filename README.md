@@ -54,15 +54,18 @@ food_parser.py   文本解析: 识别食堂(含别名)+菜品(130种种子词典
                  避雷差评 -1.0(手动语料的 negative_desc 字段);
                  统计提及/点赞/时效, 还能发现种子库之外的高频食堂
       |
-question_bank.py 79 道题、8 个维度的偏好问题库; 每次分层随机抽 12 题,
-                 每个选项映射到偏好向量的权重(辣/酸/米面/预算/位置...),
-                 含"正餐还是解馋"的模式题
+question_bank.py 35 道题、4 个栏目的口语化问卷(心情/天气/感受/个人情况),
+                 每次按栏目分层抽 ~9 题, 选项映射到偏好权重(辣/酸/米面/
+                 甜品馋度/配饮欲/预算/位置...), "正餐还是解馋"为必问题
       |
 recommender.py   打分 = 0.58*口味匹配(内积) + 0.42*热度(点赞/提及取对数,
-                 差评负提及压热度), 再乘 场景/正餐小吃/预算/就近/清真修正;
-                 头部 24 候选按 分数^温度 **加权随机抽样** 出 Top5 ——
-                 每次推荐都有变化, "换个手气"连点越点越野; 类型配额保证
-                 正餐模式不混入点心小吃(小吃/配菜有上限)
+                 差评负提及压热度), 再乘 场景/栏目/预算/就近/清真修正;
+                 分栏目输出: 正餐(3-4) + 甜品小吃(1-3) + 饮品(1-2),
+                 各栏目内按 分数^温度 **加权随机抽样** —— 永远合理常换常新
+      |
+llm_advisor.py   可选的大模型研判(Claude): 个性化追问一句 + 结合画像点评
+                 候选; CLI 用 ANTHROPIC_API_KEY 环境变量, 网页版 key 存
+                 localStorage 由浏览器直连, 不填也完全可用
 ```
 
 食堂基础信息来自清华大学饮食服务中心官网(18 个食堂 + 清青系列特色窗口),
@@ -74,9 +77,14 @@ recommender.py   打分 = 0.58*口味匹配(内积) + 0.42*热度(点赞/提及�
 python main.py scrape --keywords "清华食堂,清芬园,紫荆美食"   # 自定义关键词
 python main.py scrape --max-per-kw 10 --max-total 40          # 更保守的上限
 python main.py scrape --backfill-comments   # 给评论为空的旧帖补采评论
-python main.py recommend --questions 16 --top 5               # 多问几题
-python main.py recommend --auto                               # 随机作答(测试)
+python main.py recommend --questions 13    # 多聊几题(默认 9)
+python main.py recommend --llm             # 开启大模型研判+个性化追问
+python main.py recommend --auto            # 随机作答(测试)
 ```
+
+大模型研判(CLI)需要: `pip install anthropic` 且设置环境变量 `ANTHROPIC_API_KEY`
+(换模型用 `EAT_MODEL=claude-haiku-4-5` 之类)。网页版的等价功能在首页
+"⚙️ AI 研判设置"里填你自己的 key, 只存本浏览器。
 
 推荐界面里: `r` = 同一份偏好重新掷骰(推荐会变化), `q` = 重新问一轮。
 
@@ -104,7 +112,8 @@ python main.py recommend --auto                               # 随机作答(测
 main.py            入口 CLI
 xhs_scraper.py     采集器
 food_parser.py     帖子 -> food_db.json
-question_bank.py   79 题偏好问卷库
+question_bank.py   35 题栏目问卷(心情/天气/感受/个人)
+llm_advisor.py     大模型研判(可选)
 recommender.py     偏好估计 + 打分 + Top5
 seed_data.py       官方食堂信息 + 130 种菜品属性词典
 data/manual_posts.json  手动补充语料(避雷写 negative_desc)

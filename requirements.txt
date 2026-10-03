@@ -1,1 +1,2 @@
 playwright>=1.40
+anthropic>=0.40        # 可选: 大模型研判(recommend --llm)
